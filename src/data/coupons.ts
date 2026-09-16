@@ -1,0 +1,80 @@
+import { Coupon } from '@/types';
+
+export const coupons: Coupon[] = [
+  {
+    id: 'c-pahadi10',
+    code: 'PAHADI10',
+    discountType: 'percentage',
+    discountValue: 10,
+    minOrderAmount: 499,
+    maxDiscount: 500,
+    startDate: '2026-01-01',
+    expiryDate: '2026-12-31',
+    usageCount: 142,
+    usageLimit: 1000,
+    perCustomerLimit: 3,
+    status: 'Active',
+    description: 'Get 10% OFF on Himalayan orders above ₹499 (Max ₹500 cap)',
+    discountPercent: 10
+  },
+  {
+    id: 'c-shilajit20',
+    code: 'SHILAJIT20',
+    discountType: 'product_specific',
+    discountValue: 20,
+    minOrderAmount: 999,
+    maxDiscount: 600,
+    startDate: '2026-01-01',
+    expiryDate: '2026-11-30',
+    usageCount: 89,
+    usageLimit: 500,
+    perCustomerLimit: 2,
+    applicableProductIds: ['prod-shilajit-resin-50g', 'prod-shilajit-gold-capsules'],
+    status: 'Active',
+    description: 'Exclusive 20% OFF on Pure Himalayan Shilajit products',
+    discountPercent: 20
+  },
+  {
+    id: 'c-ghee15',
+    code: 'GHEE15',
+    discountType: 'category_specific',
+    discountValue: 15,
+    minOrderAmount: 999,
+    startDate: '2026-01-01',
+    expiryDate: '2026-12-15',
+    usageCount: 64,
+    usageLimit: 300,
+    perCustomerLimit: 2,
+    applicableCategories: ['organic-ghee'],
+    status: 'Active',
+    description: 'Special 15% OFF on Pure Cow Organic Ghee category'
+  },
+  {
+    id: 'c-freeship',
+    code: 'FREESHIP',
+    discountType: 'free_shipping',
+    discountValue: 0,
+    minOrderAmount: 0,
+    startDate: '2026-01-01',
+    expiryDate: '2026-12-31',
+    usageCount: 310,
+    usageLimit: 2000,
+    perCustomerLimit: 5,
+    status: 'Active',
+    description: '100% Free Shipping waiver on any Himalayan order size'
+  },
+  {
+    id: 'c-flat200',
+    code: 'FLAT200',
+    discountType: 'flat',
+    discountValue: 200,
+    minOrderAmount: 1499,
+    startDate: '2026-01-01',
+    expiryDate: '2026-12-31',
+    usageCount: 52,
+    usageLimit: 500,
+    perCustomerLimit: 1,
+    status: 'Active',
+    description: 'Flat ₹200 OFF on orders above ₹1499'
+  }
+];
