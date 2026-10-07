@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CustomerUser, SavedAddress, PointsTransaction } from '@/types';
+import { dbSaveCustomer } from '@/utils/supabaseDb';
 
 interface CustomerAuthContextType {
   user: CustomerUser | null;
@@ -60,6 +61,7 @@ export const CustomerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
         usersDb.push(currentUser);
       }
       localStorage.setItem(LOCAL_STORAGE_USERS, JSON.stringify(usersDb));
+      dbSaveCustomer(currentUser);
     } else {
       localStorage.removeItem(LOCAL_STORAGE_CURRENT_USER);
     }

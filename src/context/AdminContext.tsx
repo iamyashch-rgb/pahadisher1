@@ -10,6 +10,13 @@ import { coupons as initialCouponsData } from '@/data/coupons';
 import { initialShippingConfig } from '@/data/shipping';
 import { initialHomepageConfig } from '@/data/homepage';
 import { blogPosts as initialBlogPostsData, BlogPost } from '@/data/blogPosts';
+import { 
+  dbFetchProducts, dbSaveProduct, dbDeleteProduct,
+  dbFetchOrders, dbSaveOrder,
+  dbFetchReviews, dbSaveReview,
+  dbFetchCoupons, dbSaveCoupon,
+  dbFetchBlogPosts, dbSaveBlogPost
+} from '@/utils/supabaseDb';
 
 export type AdminRole = 'Super Admin' | 'Store Manager' | 'Inventory Admin';
 
@@ -200,6 +207,29 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.setItem('pahadi_orders', JSON.stringify(ordersList));
     }
   }, [ordersList]);
+
+  // Sync state with Supabase Database if configured
+  useEffect(() => {
+    async function syncSupabaseInitialData() {
+      try {
+        const [remoteProds, remoteOrders, remoteReviews, remoteCoupons, remoteBlogs] = await Promise.all([
+          dbFetchProducts(),
+          dbFetchOrders(),
+          dbFetchReviews(),
+          dbFetchCoupons(),
+          dbFetchBlogPosts()
+        ]);
+        if (remoteProds && remoteProds.length > 0) setProductsList(remoteProds);
+        if (remoteOrders && remoteOrders.length > 0) setOrdersList(remoteOrders);
+        if (remoteReviews && remoteReviews.length > 0) setReviewsList(remoteReviews);
+        if (remoteCoupons && remoteCoupons.length > 0) setCouponsList(remoteCoupons);
+        if (remoteBlogs && remoteBlogs.length > 0) setBlogPostsList(remoteBlogs);
+      } catch (err) {
+        console.warn('Supabase initial fetch skipped/failed:', err);
+      }
+    }
+    syncSupabaseInitialData();
+  }, []);
 
   // Admin Credentials & Auth State
   const [adminCredentials, setAdminCredentialsState] = useState<AdminCredentials>(() => {
@@ -497,10 +527,16 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addReview = (review: Review) => {
     setReviewsList(prev => [review, ...prev]);
+    dbSaveReview(review);
   };
 
   const updateReviewStatus = (id: string, status: Review['status']) => {
-    setReviewsList(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    setReviewsList(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, status } : r);
+      const target = updated.find(r => r.id === id);
+      if (target) dbSaveReview(target);
+      return updated;
+    });
   };
 
   const deleteReview = (id: string) => {
@@ -509,28 +545,40 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const replyToReview = (id: string, replyText: string) => {
     const repliedAt = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    setReviewsList(prev => prev.map(r => r.id === id ? { ...r, adminReply: { replyText, repliedAt } } : r));
+    setReviewsList(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, adminReply: { replyText, repliedAt } } : r);
+      const target = updated.find(r => r.id === id);
+      if (target) dbSaveReview(target);
+      return updated;
+    });
   };
 
   const voteReviewHelpful = (id: string, isHelpful: boolean) => {
-    setReviewsList(prev => prev.map(r => {
-      if (r.id === id) {
-        return {
-          ...r,
-          helpfulVotes: isHelpful ? (r.helpfulVotes || 0) + 1 : r.helpfulVotes,
-          unhelpfulVotes: !isHelpful ? (r.unhelpfulVotes || 0) + 1 : r.unhelpfulVotes
-        };
-      }
-      return r;
-    }));
+    setReviewsList(prev => {
+      const updated = prev.map(r => {
+        if (r.id === id) {
+          return {
+            ...r,
+            helpfulVotes: isHelpful ? (r.helpfulVotes || 0) + 1 : r.helpfulVotes,
+            unhelpfulVotes: !isHelpful ? (r.unhelpfulVotes || 0) + 1 : r.unhelpfulVotes
+          };
+        }
+        return r;
+      });
+      const target = updated.find(r => r.id === id);
+      if (target) dbSaveReview(target);
+      return updated;
+    });
   };
 
   const addCoupon = (coupon: Coupon) => {
     setCouponsList(prev => [coupon, ...prev]);
+    dbSaveCoupon(coupon);
   };
 
   const updateCoupon = (coupon: Coupon) => {
     setCouponsList(prev => prev.map(c => c.id === coupon.id ? coupon : c));
+    dbSaveCoupon(coupon);
   };
 
   const deleteCoupon = (id: string) => {
@@ -1213,14 +1261,17 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       images: product.images && product.images.length > 0 ? product.images : ['https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=800&q=80']
     };
     setProductsList(prev => [enrichedProduct, ...prev]);
+    dbSaveProduct(enrichedProduct);
   };
 
   const updateProduct = (updatedProduct: Product) => {
     setProductsList(prev => prev.map(p => (p.id === updatedProduct.id ? updatedProduct : p)));
+    dbSaveProduct(updatedProduct);
   };
 
   const deleteProduct = (productId: string) => {
     setProductsList(prev => prev.filter(p => p.id !== productId));
+    dbDeleteProduct(productId);
   };
 
   const restoreDefaultProducts = () => {
