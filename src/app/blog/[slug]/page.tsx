@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { notFound } from 'next/navigation';
+import { notFound, useParams } from 'next/navigation';
 import { Clock, User, Calendar, ArrowLeft, ChevronRight, Home, Share2, Sparkles } from 'lucide-react';
 import { useAdmin } from '@/context/AdminContext';
 import { blogPosts as fallbackBlogPosts } from '@/data/blogPosts';
@@ -17,15 +17,18 @@ import {
 } from '@/utils/seoSchema';
 
 interface BlogPostPageProps {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }
 
 export default function BlogPostPage({ params }: BlogPostPageProps) {
   const { blogPosts } = useAdmin();
+  const routeParams = useParams();
+  const resolvedParams = React.use(params);
+  const slug = (routeParams?.slug as string) || resolvedParams?.slug;
   const allPosts = (blogPosts && blogPosts.length > 0) ? blogPosts : fallbackBlogPosts;
-  const post = allPosts.find((p) => p.slug === params.slug);
+  const post = allPosts.find((p) => p.slug === slug);
 
   if (!post) {
     return (
