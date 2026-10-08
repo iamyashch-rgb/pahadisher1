@@ -284,6 +284,17 @@ export async function dbSaveCoupon(coupon: Coupon): Promise<boolean> {
   }
 }
 
+export async function dbDeleteCoupon(couponId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const { error } = await supabase.from('coupons').delete().eq('id', couponId);
+    return !error;
+  } catch (err) {
+    console.error('Supabase deleteCoupon error:', err);
+    return false;
+  }
+}
+
 // ==========================================
 // 5. BLOG POSTS DB ACTIONS
 // ==========================================
@@ -335,6 +346,17 @@ export async function dbSaveBlogPost(post: BlogPost): Promise<boolean> {
   }
 }
 
+export async function dbDeleteBlogPost(postId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const { error } = await supabase.from('blog_posts').delete().eq('id', postId);
+    return !error;
+  } catch (err) {
+    console.error('Supabase deleteBlogPost error:', err);
+    return false;
+  }
+}
+
 // ==========================================
 // 6. CUSTOMER USERS DB ACTIONS
 // ==========================================
@@ -359,3 +381,43 @@ export async function dbSaveCustomer(customer: CustomerUser): Promise<boolean> {
     return false;
   }
 }
+
+// ==========================================
+// 7. AUTO SEEDING INITIAL DATA IF DB IS EMPTY
+// ==========================================
+export async function dbSeedDatabaseIfEmpty(
+  products: Product[],
+  reviews: Review[],
+  coupons: Coupon[],
+  blogPosts: BlogPost[]
+) {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const { data: existingProds } = await supabase.from('products').select('id').limit(1);
+    if (!existingProds || existingProds.length === 0) {
+      console.log('Seeding initial products to Supabase...');
+      await Promise.all(products.map(p => dbSaveProduct(p)));
+    }
+
+    const { data: existingReviews } = await supabase.from('reviews').select('id').limit(1);
+    if (!existingReviews || existingReviews.length === 0) {
+      console.log('Seeding initial reviews to Supabase...');
+      await Promise.all(reviews.map(r => dbSaveReview(r)));
+    }
+
+    const { data: existingCoupons } = await supabase.from('coupons').select('id').limit(1);
+    if (!existingCoupons || existingCoupons.length === 0) {
+      console.log('Seeding initial coupons to Supabase...');
+      await Promise.all(coupons.map(c => dbSaveCoupon(c)));
+    }
+
+    const { data: existingBlogs } = await supabase.from('blog_posts').select('id').limit(1);
+    if (!existingBlogs || existingBlogs.length === 0) {
+      console.log('Seeding initial blog posts to Supabase...');
+      await Promise.all(blogPosts.map(b => dbSaveBlogPost(b)));
+    }
+  } catch (err) {
+    console.warn('Supabase auto-seed warning:', err);
+  }
+}
+

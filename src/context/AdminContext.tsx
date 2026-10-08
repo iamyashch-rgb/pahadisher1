@@ -14,8 +14,9 @@ import {
   dbFetchProducts, dbSaveProduct, dbDeleteProduct,
   dbFetchOrders, dbSaveOrder,
   dbFetchReviews, dbSaveReview,
-  dbFetchCoupons, dbSaveCoupon,
-  dbFetchBlogPosts, dbSaveBlogPost
+  dbFetchCoupons, dbSaveCoupon, dbDeleteCoupon,
+  dbFetchBlogPosts, dbSaveBlogPost, dbDeleteBlogPost,
+  dbSeedDatabaseIfEmpty
 } from '@/utils/supabaseDb';
 
 export type AdminRole = 'Super Admin' | 'Store Manager' | 'Inventory Admin';
@@ -153,65 +154,210 @@ interface AdminContextType {
 
 const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
+const defaultAdminCredentials: AdminCredentials = {
+  name: 'Store Admin',
+  email: 'admin@thepahadisher.com',
+  password: 'pahadisher@1234',
+  avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80'
+};
+
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [productsList, setProductsList] = useState<Product[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_products');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // Filter duplicates from saved products and merge missing initial products
-            const seenIds = new Set<string>();
-            const uniqueParsed = parsed.filter((p: Product) => {
-              if (seenIds.has(p.id)) return false;
-              seenIds.add(p.id);
-              return true;
-            });
-            const missing = initialProducts.filter(p => !seenIds.has(p.id));
-            return [...uniqueParsed, ...missing];
-          }
-        } catch (e) {
-          console.error('Failed to parse saved products', e);
-        }
-      }
-    }
-    return initialProducts;
-  });
-  const [ordersList, setOrdersList] = useState<Order[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_orders');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.filter((o: Order) => !o.id?.startsWith('order-') && !o.orderNumber?.startsWith('TPS-2026-98'));
-          }
-        } catch (e) {
-          console.error('Failed to parse saved orders', e);
-        }
-      }
-    }
-    return initialOrders;
-  });
+  const isLoadedRef = React.useRef(false);
+  const [productsList, setProductsList] = useState<Product[]>(initialProducts);
+  const [ordersList, setOrdersList] = useState<Order[]>(initialOrders);
   const [logsList, setLogsList] = useState<InventoryLogEntry[]>(initialInventoryLogs);
+  const [adminCredentials, setAdminCredentialsState] = useState<AdminCredentials>(defaultAdminCredentials);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [role, setRole] = useState<AdminRole>('Super Admin');
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+
+  const [categoriesList, setCategoriesList] = useState<Category[]>([
+    { id: 'cat-1', name: 'Shilajit', slug: 'shilajit', description: 'Pure Himalayan Resin & Gold Grade Supplements', productCount: 4, featured: true, status: 'Active' },
+    { id: 'cat-2', name: 'Organic Ghee', slug: 'organic-ghee', description: 'Traditional Pure Cow Desi Ghee', productCount: 3, featured: true, status: 'Active' },
+    { id: 'cat-3', name: 'Kashmiri Kesar', slug: 'kashmiri-kesar', description: 'Pure Mongra Saffron Strands', productCount: 2, featured: true, status: 'Active' },
+    { id: 'cat-4', name: 'Herbal Teas', slug: 'herbal-teas', description: 'Artisanal Pahadi Chamomile & Rhododendron Teas', productCount: 5, featured: false, status: 'Active' },
+    { id: 'cat-5', name: 'Wild Honey', slug: 'wild-honey', description: 'Unprocessed Himalayan Multiflora Honey', productCount: 3, featured: true, status: 'Active' },
+    { id: 'cat-6', name: 'Ayurvedic Oils', slug: 'ayurvedic-oils', description: 'Cold-pressed Apricot & Walnut Seed Oils', productCount: 2, featured: false, status: 'Draft' },
+  ]);
+
+  const [reviewsList, setReviewsList] = useState<Review[]>(initialReviewsData);
+  const [couponsList, setCouponsList] = useState<Coupon[]>(initialCouponsData);
+
+  const [storeContent, setStoreContent] = useState<StoreContent>({
+    announcementBarText: '🏔️ Pure Himalayan Shilajit & Pure Cow Ghee - 100% Organic Purity | Free Shipping above ₹999!',
+    announcementActive: true,
+    heroHeading: 'Pure Himalayan Wellness, Harvested From High Altitudes',
+    heroSubheading: 'Authentic 100% pure Himalayan Shilajit, Pure Cow Ghee & Mongra Kesar delivered direct from Uttarakhand villagers to your doorstep.',
+    bannerTagline: 'Uncompromising Quality • Handcrafted in Small Batches • Zero Chemicals'
+  });
+
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>({
+    storeName: 'The Pahadi Sher',
+    supportEmail: 'chhavibohra@gmail.com',
+    supportPhone: '+91 9997408567',
+    currencySymbol: '₹',
+    taxRatePercent: 5,
+    freeShippingThreshold: 999,
+    razorpayMode: 'Test',
+    autoFulfillDigital: false
+  });
+
+  const [shippingConfig, setShippingConfig] = useState<ShippingConfig>(initialShippingConfig);
+  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(initialHomepageConfig);
+
+  // Read local/session storage ONCE after client mount to prevent SSR hydration mismatches
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Load products
+    const savedProds = localStorage.getItem('pahadi_products');
+    if (savedProds) {
+      try {
+        const parsed = JSON.parse(savedProds);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const seenIds = new Set<string>();
+          const uniqueParsed = parsed.filter((p: Product) => {
+            if (seenIds.has(p.id)) return false;
+            seenIds.add(p.id);
+            return true;
+          });
+          const missing = initialProducts.filter(p => !seenIds.has(p.id));
+          setProductsList([...uniqueParsed, ...missing]);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved products', e);
+      }
+    }
+
+    // Load orders
+    const savedOrders = localStorage.getItem('pahadi_orders');
+    if (savedOrders) {
+      try {
+        const parsed = JSON.parse(savedOrders);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setOrdersList(parsed.filter((o: Order) => !o.id?.startsWith('order-') && !o.orderNumber?.startsWith('TPS-2026-98')));
+        }
+      } catch (e) {
+        console.error('Failed to parse saved orders', e);
+      }
+    }
+
+    // Load admin credentials & session
+    let activeCreds = defaultAdminCredentials;
+    const savedCreds = localStorage.getItem('pahadi_admin_credentials');
+    if (savedCreds) {
+      try {
+        activeCreds = JSON.parse(savedCreds);
+        setAdminCredentialsState(activeCreds);
+      } catch (e) {
+        console.error('Failed to parse saved admin credentials', e);
+      }
+    }
+
+    const sessionActive = sessionStorage.getItem('pahadi_admin_session') === 'true';
+    if (sessionActive) {
+      setIsAuthenticated(true);
+      setAdminUser({
+        name: activeCreds.name,
+        email: activeCreds.email,
+        role: 'Super Admin',
+        avatar: activeCreds.avatar
+      });
+    }
+
+    // Load reviews
+    const savedReviews = localStorage.getItem('pahadi_reviews');
+    if (savedReviews) {
+      try {
+        setReviewsList(JSON.parse(savedReviews));
+      } catch (e) {
+        console.error('Failed to parse saved reviews', e);
+      }
+    }
+
+    // Load coupons
+    const savedCoupons = localStorage.getItem('pahadi_coupons');
+    if (savedCoupons) {
+      try {
+        setCouponsList(JSON.parse(savedCoupons));
+      } catch (e) {
+        console.error('Failed to parse saved coupons', e);
+      }
+    }
+
+    // Load shipping config
+    const savedShipping = localStorage.getItem('pahadi_shipping_config');
+    if (savedShipping) {
+      try {
+        setShippingConfig(JSON.parse(savedShipping));
+      } catch (e) {
+        console.error('Failed to parse saved shipping config', e);
+      }
+    }
+
+    // Load homepage config
+    const savedHomepage = localStorage.getItem('pahadi_homepage_config');
+    if (savedHomepage) {
+      try {
+        const parsed = JSON.parse(savedHomepage);
+        if (parsed && Array.isArray(parsed.sections)) {
+          const savedSectionIds = new Set(parsed.sections.map((s: any) => s.id));
+          const missingSections = initialHomepageConfig.sections.filter(s => !savedSectionIds.has(s.id));
+          
+          let updatedSections = [...parsed.sections];
+          if (missingSections.length > 0) {
+            updatedSections = [...updatedSections, ...missingSections];
+          }
+
+          updatedSections = updatedSections.map((s: any) => {
+            if (s.id === 'instagram_reels') {
+              return { ...s, enabled: true };
+            }
+            if (s.id === 'newsletter' || s.id === 'combo_offers' || s.id === 'brand_story' || s.id === 'sourcing_process' || s.id === 'why_us') {
+              return { ...s, enabled: false };
+            }
+            return s;
+          });
+
+          parsed.sections = updatedSections;
+          setHomepageConfig(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved homepage config', e);
+      }
+    }
+
+    // Load blog posts
+    const savedBlogs = localStorage.getItem('pahadi_blog_posts');
+    if (savedBlogs) {
+      try {
+        const parsed = JSON.parse(savedBlogs);
+        if (Array.isArray(parsed) && parsed.length > 0) setBlogPostsList(parsed);
+      } catch (e) {
+        console.error('Failed to parse saved blog posts', e);
+      }
+    }
+
+    isLoadedRef.current = true;
+  }, []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_products', JSON.stringify(productsList));
     }
   }, [productsList]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_orders', JSON.stringify(ordersList));
     }
   }, [ordersList]);
 
-  // Sync state with Supabase Database if configured
+  // Sync state with Supabase Database if configured & auto-seed if empty
   useEffect(() => {
     async function syncSupabaseInitialData() {
       try {
+        await dbSeedDatabaseIfEmpty(initialProducts, initialReviewsData, initialCouponsData, initialBlogPostsData);
         const [remoteProds, remoteOrders, remoteReviews, remoteCoupons, remoteBlogs] = await Promise.all([
           dbFetchProducts(),
           dbFetchOrders(),
@@ -230,44 +376,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     syncSupabaseInitialData();
   }, []);
-
-  // Admin Credentials & Auth State
-  const [adminCredentials, setAdminCredentialsState] = useState<AdminCredentials>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_admin_credentials');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error('Failed to parse saved admin credentials', e);
-        }
-      }
-    }
-    return {
-      name: 'Store Admin',
-      email: 'admin@thepahadisher.com',
-      password: 'pahadisher@1234',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80'
-    };
-  });
-
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('pahadi_admin_session') === 'true';
-    }
-    return false;
-  });
-  const [role, setRole] = useState<AdminRole>('Super Admin');
-  const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
-    const isAuth = typeof window !== 'undefined' && sessionStorage.getItem('pahadi_admin_session') === 'true';
-    if (!isAuth) return null;
-    return {
-      name: adminCredentials.name,
-      email: adminCredentials.email,
-      role: 'Super Admin',
-      avatar: adminCredentials.avatar
-    };
-  });
 
   const updateAdminCredentials = (newCreds: Partial<AdminCredentials>) => {
     setAdminCredentialsState(prev => {
@@ -319,94 +427,17 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Initial Data for Sections
-  const [categoriesList, setCategoriesList] = useState<Category[]>([
-    { id: 'cat-1', name: 'Shilajit', slug: 'shilajit', description: 'Pure Himalayan Resin & Gold Grade Supplements', productCount: 4, featured: true, status: 'Active' },
-    { id: 'cat-2', name: 'Organic Ghee', slug: 'organic-ghee', description: 'Traditional Pure Cow Desi Ghee', productCount: 3, featured: true, status: 'Active' },
-    { id: 'cat-3', name: 'Kashmiri Kesar', slug: 'kashmiri-kesar', description: 'Pure Mongra Saffron Strands', productCount: 2, featured: true, status: 'Active' },
-    { id: 'cat-4', name: 'Herbal Teas', slug: 'herbal-teas', description: 'Artisanal Pahadi Chamomile & Rhododendron Teas', productCount: 5, featured: false, status: 'Active' },
-    { id: 'cat-5', name: 'Wild Honey', slug: 'wild-honey', description: 'Unprocessed Himalayan Multiflora Honey', productCount: 3, featured: true, status: 'Active' },
-    { id: 'cat-6', name: 'Ayurvedic Oils', slug: 'ayurvedic-oils', description: 'Cold-pressed Apricot & Walnut Seed Oils', productCount: 2, featured: false, status: 'Draft' },
-  ]);
-
-  const [reviewsList, setReviewsList] = useState<Review[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_reviews');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-    return initialReviewsData;
-  });
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_reviews', JSON.stringify(reviewsList));
     }
   }, [reviewsList]);
 
-  const [couponsList, setCouponsList] = useState<Coupon[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_coupons');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-    return initialCouponsData;
-  });
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_coupons', JSON.stringify(couponsList));
     }
   }, [couponsList]);
-
-  const [storeContent, setStoreContent] = useState<StoreContent>({
-    announcementBarText: '🏔️ Pure Himalayan Shilajit & Pure Cow Ghee - 100% Organic Purity | Free Shipping above ₹999!',
-    announcementActive: true,
-    heroHeading: 'Pure Himalayan Wellness, Harvested From High Altitudes',
-    heroSubheading: 'Authentic 100% pure Himalayan Shilajit, Pure Cow Ghee & Mongra Kesar delivered direct from Uttarakhand villagers to your doorstep.',
-    bannerTagline: 'Uncompromising Quality • Handcrafted in Small Batches • Zero Chemicals'
-  });
-
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>({
-    storeName: 'The Pahadi Sher',
-    supportEmail: 'chhavibohra@gmail.com',
-    supportPhone: '+91 9997408567',
-    currencySymbol: '₹',
-    taxRatePercent: 5,
-    freeShippingThreshold: 999,
-    razorpayMode: 'Test',
-    autoFulfillDigital: false
-  });
-
-  const [shippingConfig, setShippingConfig] = useState<ShippingConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_shipping_config');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-    return initialShippingConfig;
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('pahadi_shipping_config', JSON.stringify(shippingConfig));
-    }
-  }, [shippingConfig]);
 
   const updateShippingConfig = (newConfig: Partial<ShippingConfig>) => {
     setShippingConfig(prev => ({ ...prev, ...newConfig }));
@@ -454,46 +485,14 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }));
   };
 
-  // Homepage CMS State & Sync
-  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_homepage_config');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed.sections)) {
-            const savedSectionIds = new Set(parsed.sections.map((s: any) => s.id));
-            const missingSections = initialHomepageConfig.sections.filter(s => !savedSectionIds.has(s.id));
-            
-            let updatedSections = [...parsed.sections];
-            if (missingSections.length > 0) {
-              updatedSections = [...updatedSections, ...missingSections];
-            }
-
-            // Ensure combo_offers is disabled as requested
-            updatedSections = updatedSections.map((s: any) => {
-              if (s.id === 'instagram_reels') {
-                return { ...s, enabled: true };
-              }
-              if (s.id === 'newsletter' || s.id === 'combo_offers' || s.id === 'brand_story' || s.id === 'sourcing_process' || s.id === 'why_us') {
-                return { ...s, enabled: false };
-              }
-              return s;
-            });
-
-            parsed.sections = updatedSections;
-            return parsed;
-          }
-        } catch (e) {
-          console.error('Failed to parse saved homepage config', e);
-        }
-      }
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
+      localStorage.setItem('pahadi_shipping_config', JSON.stringify(shippingConfig));
     }
-    return initialHomepageConfig;
-  });
+  }, [shippingConfig]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_homepage_config', JSON.stringify(homepageConfig));
     }
   }, [homepageConfig]);
@@ -583,16 +582,22 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const deleteCoupon = (id: string) => {
     setCouponsList(prev => prev.filter(c => c.id !== id));
+    dbDeleteCoupon(id);
   };
 
   const toggleCouponStatus = (id: string) => {
-    setCouponsList(prev => prev.map(c => {
-      if (c.id === id) {
-        const nextStatus = c.status === 'Active' ? 'Disabled' : 'Active';
-        return { ...c, status: nextStatus };
-      }
-      return c;
-    }));
+    setCouponsList(prev => {
+      const updated = prev.map(c => {
+        if (c.id === id) {
+          const nextStatus: Coupon['status'] = c.status === 'Active' ? 'Disabled' : 'Active';
+          return { ...c, status: nextStatus };
+        }
+        return c;
+      });
+      const target = updated.find(c => c.id === id);
+      if (target) dbSaveCoupon(target);
+      return updated;
+    });
   };
 
   const recordCouponUsage = (code: string) => {
@@ -979,8 +984,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const setProductStatus = (productId: string, status: InventoryStatus) => {
-    setProductsList(prev =>
-      prev.map(p => {
+    setProductsList(prev => {
+      const updated = prev.map(p => {
         if (p.id !== productId) return p;
         const isDiscontinued = status === 'Discontinued';
         const avail = isDiscontinued ? 0 : (p.availableQuantity || p.stockQuantity);
@@ -990,8 +995,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           isDiscontinued,
           inStock: avail > 0 && !isDiscontinued
         };
-      })
-    );
+      });
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const updateProductStock = (productId: string, newStock: number) => {
@@ -999,9 +1007,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateProductPrice = (productId: string, newPrice: number) => {
-    setProductsList(prev =>
-      prev.map(p => (p.id === productId ? { ...p, price: newPrice } : p))
-    );
+    setProductsList(prev => {
+      const updated = prev.map(p => (p.id === productId ? { ...p, price: newPrice } : p));
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const updateVariantStock = (productId: string, variantId: string, newStock: number) => {
@@ -1009,45 +1020,54 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateVariantPrice = (productId: string, variantId: string, newPrice: number) => {
-    setProductsList(prev =>
-      prev.map(p => {
+    setProductsList(prev => {
+      const updated = prev.map(p => {
         if (p.id !== productId || !p.variants) return p;
         const updatedVariants = p.variants.map(v =>
           v.id === variantId ? { ...v, price: newPrice } : v
         );
         return { ...p, variants: updatedVariants };
-      })
-    );
+      });
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const addVariantToProduct = (productId: string, variant: ProductVariant) => {
-    setProductsList(prev =>
-      prev.map(p => {
+    setProductsList(prev => {
+      const updated = prev.map(p => {
         if (p.id !== productId) return p;
         const variants = p.variants || [];
-        const updated = [...variants, variant];
-        const totalStock = updated.reduce((sum, v) => sum + v.stockQuantity, 0);
-        return { ...p, variants: updated, stockQuantity: totalStock, availableQuantity: totalStock, inStock: totalStock > 0 };
-      })
-    );
+        const updatedVars = [...variants, variant];
+        const totalStock = updatedVars.reduce((sum, v) => sum + v.stockQuantity, 0);
+        return { ...p, variants: updatedVars, stockQuantity: totalStock, availableQuantity: totalStock, inStock: totalStock > 0 };
+      });
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const removeVariantFromProduct = (productId: string, variantId: string) => {
-    setProductsList(prev =>
-      prev.map(p => {
+    setProductsList(prev => {
+      const updated = prev.map(p => {
         if (p.id !== productId || !p.variants) return p;
-        const updated = p.variants.filter(v => v.id !== variantId);
-        const totalStock = updated.reduce((sum, v) => sum + v.stockQuantity, 0);
-        return { ...p, variants: updated, stockQuantity: totalStock, availableQuantity: totalStock, inStock: totalStock > 0 };
-      })
-    );
+        const updatedVars = p.variants.filter(v => v.id !== variantId);
+        const totalStock = updatedVars.reduce((sum, v) => sum + v.stockQuantity, 0);
+        return { ...p, variants: updatedVars, stockQuantity: totalStock, availableQuantity: totalStock, inStock: totalStock > 0 };
+      });
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const updateOrderStatus = (orderId: string, status: Order['status'], customNote?: string) => {
     const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     
-    setOrdersList(prev =>
-      prev.map(o => {
+    setOrdersList(prev => {
+      const updated = prev.map(o => {
         if (o.id !== orderId) return o;
         
         let paymentStatus = o.paymentStatus;
@@ -1096,15 +1116,18 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           timeline: updatedTimeline,
           notificationsSent: updatedNotifs
         };
-      })
-    );
+      });
+      const target = updated.find(o => o.id === orderId);
+      if (target) dbSaveOrder(target);
+      return updated;
+    });
   };
 
   const updateOrderTracking = (orderId: string, trackingNumber: string, courierPartner = 'Express Air Courier', trackingUrl?: string) => {
     const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    setOrdersList(prev =>
-      prev.map(o => {
+    setOrdersList(prev => {
+      const updated = prev.map(o => {
         if (o.id !== orderId) return o;
 
         const generatedUrl = trackingUrl || `https://track.courier.com/${trackingNumber}`;
@@ -1138,8 +1161,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           timeline: [...(o.timeline || []), newTimelineEvent],
           notificationsSent: [...(o.notificationsSent || []), newNotification]
         };
-      })
-    );
+      });
+      const target = updated.find(o => o.id === orderId);
+      if (target) dbSaveOrder(target);
+      return updated;
+    });
   };
 
   const cancelOrder = (orderId: string, reason: string) => {
@@ -1148,13 +1174,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setOrdersList(prev => {
       const target = prev.find(o => o.id === orderId);
       if (target) {
-        // Release inventory stock back
         target.items.forEach(item => {
           releaseStock([{ productId: item.productId, quantity: item.quantity }]);
         });
       }
 
-      return prev.map(o => {
+      const updated = prev.map(o => {
         if (o.id !== orderId) return o;
 
         const newTimelineEvent = {
@@ -1176,15 +1201,20 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           status: 'Delivered' as const
         };
 
+        const nextPaymentStatus: Order['paymentStatus'] = o.paymentStatus === 'Paid' ? 'Refunded' : 'Failed';
+
         return {
           ...o,
           status: 'Cancelled' as const,
           shippingStatus: 'Cancelled' as const,
-          paymentStatus: o.paymentStatus === 'Paid' ? 'Refunded' : 'Failed',
+          paymentStatus: nextPaymentStatus,
           timeline: [...(o.timeline || []), newTimelineEvent],
           notificationsSent: [...(o.notificationsSent || []), newNotification]
         };
       });
+      const updatedTarget = updated.find(o => o.id === orderId);
+      if (updatedTarget) dbSaveOrder(updatedTarget);
+      return updated;
     });
   };
 
@@ -1192,8 +1222,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const generatedRefundId = `rfnd_Pahadi${Math.floor(100000 + Math.random() * 900000)}`;
 
-    setOrdersList(prev =>
-      prev.map(o => {
+    setOrdersList(prev => {
+      const updated = prev.map(o => {
         if (o.id !== orderId) return o;
 
         const newTimelineEvent = {
@@ -1225,15 +1255,18 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           timeline: [...(o.timeline || []), newTimelineEvent],
           notificationsSent: [...(o.notificationsSent || []), newNotification]
         };
-      })
-    );
+      });
+      const target = updated.find(o => o.id === orderId);
+      if (target) dbSaveOrder(target);
+      return updated;
+    });
   };
 
   const sendCustomerNotification = (orderId: string, type: 'Email' | 'SMS' | 'WhatsApp', subject: string, message: string) => {
     const timestamp = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    setOrdersList(prev =>
-      prev.map(o => {
+    setOrdersList(prev => {
+      const updated = prev.map(o => {
         if (o.id !== orderId) return o;
 
         const newNotification = {
@@ -1250,8 +1283,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ...o,
           notificationsSent: [...(o.notificationsSent || []), newNotification]
         };
-      })
-    );
+      });
+      const target = updated.find(o => o.id === orderId);
+      if (target) dbSaveOrder(target);
+      return updated;
+    });
   };
 
   const addNewProduct = (product: Product) => {
@@ -1307,74 +1343,78 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     setProductsList(prev => [duplicated, ...prev]);
+    dbSaveProduct(duplicated);
   };
 
   const archiveProduct = (productId: string) => {
-    setProductsList(prev =>
-      prev.map(p => (p.id === productId ? { ...p, publishStatus: 'Archived', isDiscontinued: true, status: 'Discontinued' } : p))
-    );
+    setProductsList(prev => {
+      const updated = prev.map(p => (p.id === productId ? { ...p, publishStatus: 'Archived' as const, isDiscontinued: true, status: 'Discontinued' as const } : p));
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const setPublishStatus = (productId: string, status: 'Published' | 'Draft' | 'Unpublished' | 'Archived') => {
-    setProductsList(prev =>
-      prev.map(p => (p.id === productId ? { ...p, publishStatus: status, isDiscontinued: status === 'Archived' } : p))
-    );
+    setProductsList(prev => {
+      const updated = prev.map(p => (p.id === productId ? { ...p, publishStatus: status, isDiscontinued: status === 'Archived' } : p));
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const reorderProductImages = (productId: string, images: string[]) => {
-    setProductsList(prev =>
-      prev.map(p => (p.id === productId ? { ...p, images } : p))
-    );
+    setProductsList(prev => {
+      const updated = prev.map(p => (p.id === productId ? { ...p, images } : p));
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const setPrimaryImage = (productId: string, imageIndex: number) => {
-    setProductsList(prev =>
-      prev.map(p => {
+    setProductsList(prev => {
+      const updated = prev.map(p => {
         if (p.id !== productId || !p.images || imageIndex >= p.images.length) return p;
         const newImages = [...p.images];
         const [selected] = newImages.splice(imageIndex, 1);
         newImages.unshift(selected);
         return { ...p, images: newImages };
-      })
-    );
+      });
+      const target = updated.find(p => p.id === productId);
+      if (target) dbSaveProduct(target);
+      return updated;
+    });
   };
 
   const addNewOrder = (order: Order) => {
     setOrdersList(prev => [order, ...prev]);
+    dbSaveOrder(order);
   };
 
   // Blog State & Persistence
-  const [blogPostsList, setBlogPostsList] = useState<BlogPost[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pahadi_blog_posts');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        } catch (e) {
-          console.error('Failed to parse saved blog posts', e);
-        }
-      }
-    }
-    return initialBlogPostsData;
-  });
+  const [blogPostsList, setBlogPostsList] = useState<BlogPost[]>(initialBlogPostsData);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isLoadedRef.current) {
       localStorage.setItem('pahadi_blog_posts', JSON.stringify(blogPostsList));
     }
   }, [blogPostsList]);
 
   const addNewBlogPost = (post: BlogPost) => {
     setBlogPostsList(prev => [post, ...prev]);
+    dbSaveBlogPost(post);
   };
 
   const updateBlogPost = (post: BlogPost) => {
     setBlogPostsList(prev => prev.map(p => p.id === post.id ? post : p));
+    dbSaveBlogPost(post);
   };
 
   const deleteBlogPost = (postId: string) => {
     setBlogPostsList(prev => prev.filter(p => p.id !== postId));
+    dbDeleteBlogPost(postId);
   };
 
   const contextValue = useMemo(
