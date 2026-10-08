@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 import { Product, ProductVariant } from '@/types';
 import { useProducts } from './AdminContext';
 import { useCart } from './CartContext';
+import { dbSaveWishlist } from '@/utils/supabaseDb';
 
 interface WishlistContextType {
   wishlist: string[];
@@ -40,11 +41,12 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, []);
 
-  // Sync to local storage
+  // Sync to local storage & Database
   useEffect(() => {
     if (!hydrated) return;
     try {
       localStorage.setItem('pahadi_sher_wishlist', JSON.stringify(wishlist));
+      dbSaveWishlist('active_wishlist', wishlist);
     } catch (e) {
       console.error('Error saving wishlist to storage', e);
     }

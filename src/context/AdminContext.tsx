@@ -13,10 +13,11 @@ import { blogPosts as initialBlogPostsData, BlogPost } from '@/data/blogPosts';
 import { 
   dbFetchProducts, dbSaveProduct, dbDeleteProduct,
   dbFetchOrders, dbSaveOrder,
-  dbFetchReviews, dbSaveReview,
+  dbFetchReviews, dbSaveReview, dbDeleteReview,
   dbFetchCoupons, dbSaveCoupon, dbDeleteCoupon,
   dbFetchBlogPosts, dbSaveBlogPost, dbDeleteBlogPost,
-  dbSeedDatabaseIfEmpty
+  dbSaveCategory, dbSaveStoreSettings, dbSaveShippingConfig,
+  dbSaveHomepageConfig, dbSaveInventoryLog, dbFetchAllCollections
 } from '@/utils/supabaseDb';
 
 export type AdminRole = 'Super Admin' | 'Store Manager' | 'Inventory Admin';
@@ -353,28 +354,28 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [ordersList]);
 
-  // Sync state with Supabase Database if configured & auto-seed if empty
+  // Sync state with Database Engine & Supabase if configured
   useEffect(() => {
-    async function syncSupabaseInitialData() {
+    async function syncDatabaseInitialData() {
       try {
-        await dbSeedDatabaseIfEmpty(initialProducts, initialReviewsData, initialCouponsData, initialBlogPostsData);
-        const [remoteProds, remoteOrders, remoteReviews, remoteCoupons, remoteBlogs] = await Promise.all([
-          dbFetchProducts(),
-          dbFetchOrders(),
-          dbFetchReviews(),
-          dbFetchCoupons(),
-          dbFetchBlogPosts()
-        ]);
-        if (remoteProds && remoteProds.length > 0) setProductsList(remoteProds);
-        if (remoteOrders && remoteOrders.length > 0) setOrdersList(remoteOrders);
-        if (remoteReviews && remoteReviews.length > 0) setReviewsList(remoteReviews);
-        if (remoteCoupons && remoteCoupons.length > 0) setCouponsList(remoteCoupons);
-        if (remoteBlogs && remoteBlogs.length > 0) setBlogPostsList(remoteBlogs);
+        const collections = await dbFetchAllCollections();
+        if (collections) {
+          if (collections.products?.length) setProductsList(collections.products);
+          if (collections.orders?.length) setOrdersList(collections.orders);
+          if (collections.reviews?.length) setReviewsList(collections.reviews);
+          if (collections.coupons?.length) setCouponsList(collections.coupons);
+          if (collections.blog_posts?.length) setBlogPostsList(collections.blog_posts);
+          if (collections.categories?.length) setCategoriesList(collections.categories);
+          if (collections.store_settings) setStoreSettings(prev => ({ ...prev, ...collections.store_settings }));
+          if (collections.shipping_config) setShippingConfig(prev => ({ ...prev, ...collections.shipping_config }));
+          if (collections.homepage_config) setHomepageConfig(prev => ({ ...prev, ...collections.homepage_config }));
+          if (collections.inventory_logs?.length) setLogsList(collections.inventory_logs);
+        }
       } catch (err) {
-        console.warn('Supabase initial fetch skipped/failed:', err);
+        console.warn('Initial database fetch warning:', err);
       }
     }
-    syncSupabaseInitialData();
+    syncDatabaseInitialData();
   }, []);
 
   const updateAdminCredentials = (newCreds: Partial<AdminCredentials>) => {
@@ -440,25 +441,41 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [couponsList]);
 
   const updateShippingConfig = (newConfig: Partial<ShippingConfig>) => {
-    setShippingConfig(prev => ({ ...prev, ...newConfig }));
+    setShippingConfig(prev => {
+      const updated = { ...prev, ...newConfig };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   const addPincodeZone = (zone: PincodeZoneRule) => {
-    setShippingConfig(prev => ({ ...prev, pincodeZones: [...prev.pincodeZones, zone] }));
+    setShippingConfig(prev => {
+      const updated = { ...prev, pincodeZones: [...prev.pincodeZones, zone] };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   const updatePincodeZone = (zone: PincodeZoneRule) => {
-    setShippingConfig(prev => ({
-      ...prev,
-      pincodeZones: prev.pincodeZones.map(z => z.id === zone.id ? zone : z)
-    }));
+    setShippingConfig(prev => {
+      const updated = {
+        ...prev,
+        pincodeZones: prev.pincodeZones.map(z => z.id === zone.id ? zone : z)
+      };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   const deletePincodeZone = (id: string) => {
-    setShippingConfig(prev => ({
-      ...prev,
-      pincodeZones: prev.pincodeZones.filter(z => z.id !== id)
-    }));
+    setShippingConfig(prev => {
+      const updated = {
+        ...prev,
+        pincodeZones: prev.pincodeZones.filter(z => z.id !== id)
+      };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   const updateProductShippingRule = (rule: ProductShippingRule) => {
@@ -467,22 +484,32 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const newRules = existing
         ? prev.productRules.map(r => r.productId === rule.productId ? rule : r)
         : [...prev.productRules, rule];
-      return { ...prev, productRules: newRules };
+      const updated = { ...prev, productRules: newRules };
+      dbSaveShippingConfig(updated);
+      return updated;
     });
   };
 
   const deleteProductShippingRule = (productId: string) => {
-    setShippingConfig(prev => ({
-      ...prev,
-      productRules: prev.productRules.filter(r => r.productId !== productId)
-    }));
+    setShippingConfig(prev => {
+      const updated = {
+        ...prev,
+        productRules: prev.productRules.filter(r => r.productId !== productId)
+      };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   const updateCodConfig = (codPartial: Partial<CodConfig>) => {
-    setShippingConfig(prev => ({
-      ...prev,
-      codConfig: { ...prev.codConfig, ...codPartial }
-    }));
+    setShippingConfig(prev => {
+      const updated = {
+        ...prev,
+        codConfig: { ...prev.codConfig, ...codPartial }
+      };
+      dbSaveShippingConfig(updated);
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -498,30 +525,52 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [homepageConfig]);
 
   const updateHomepageConfig = (newConfig: Partial<HomepageConfig>) => {
-    setHomepageConfig(prev => ({ ...prev, ...newConfig }));
+    setHomepageConfig(prev => {
+      const updated = { ...prev, ...newConfig };
+      dbSaveHomepageConfig(updated);
+      return updated;
+    });
   };
 
   const updateSectionOrder = (sections: HomepageSectionMeta[]) => {
-    setHomepageConfig(prev => ({ ...prev, sections }));
+    setHomepageConfig(prev => {
+      const updated = { ...prev, sections };
+      dbSaveHomepageConfig(updated);
+      return updated;
+    });
   };
 
   const toggleSectionEnabled = (sectionId: string, enabled: boolean) => {
-    setHomepageConfig(prev => ({
-      ...prev,
-      sections: prev.sections.map(s => s.id === sectionId ? { ...s, enabled } : s)
-    }));
+    setHomepageConfig(prev => {
+      const updated = {
+        ...prev,
+        sections: prev.sections.map(s => s.id === sectionId ? { ...s, enabled } : s)
+      };
+      dbSaveHomepageConfig(updated);
+      return updated;
+    });
   };
 
   const resetHomepageConfigToDefault = () => {
     setHomepageConfig(initialHomepageConfig);
+    dbSaveHomepageConfig(initialHomepageConfig);
   };
 
   const addCategory = (cat: Category) => {
-    setCategoriesList(prev => [...prev, cat]);
+    setCategoriesList(prev => {
+      const updated = [...prev, cat];
+      dbSaveCategory(cat);
+      return updated;
+    });
   };
 
   const updateCategoryStatus = (id: string, status: Category['status']) => {
-    setCategoriesList(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+    setCategoriesList(prev => {
+      const updated = prev.map(c => c.id === id ? { ...c, status } : c);
+      const target = updated.find(c => c.id === id);
+      if (target) dbSaveCategory(target);
+      return updated;
+    });
   };
 
   const addReview = (review: Review) => {
@@ -540,6 +589,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const deleteReview = (id: string) => {
     setReviewsList(prev => prev.filter(r => r.id !== id));
+    dbDeleteReview(id);
   };
 
   const replyToReview = (id: string, replyText: string) => {
@@ -601,20 +651,33 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const recordCouponUsage = (code: string) => {
-    setCouponsList(prev => prev.map(c => {
-      if (c.code.toUpperCase() === code.toUpperCase()) {
-        return { ...c, usageCount: c.usageCount + 1 };
-      }
-      return c;
-    }));
+    setCouponsList(prev => {
+      const updated = prev.map(c => {
+        if (c.code.toUpperCase() === code.toUpperCase()) {
+          const u = { ...c, usageCount: c.usageCount + 1 };
+          dbSaveCoupon(u);
+          return u;
+        }
+        return c;
+      });
+      return updated;
+    });
   };
 
   const updateStoreContent = (newContent: Partial<StoreContent>) => {
-    setStoreContent(prev => ({ ...prev, ...newContent }));
+    setStoreContent(prev => {
+      const updated = { ...prev, ...newContent };
+      dbSaveStoreSettings(updated);
+      return updated;
+    });
   };
 
   const updateStoreSettings = (newSettings: Partial<StoreSettings>) => {
-    setStoreSettings(prev => ({ ...prev, ...newSettings }));
+    setStoreSettings(prev => {
+      const updated = { ...prev, ...newSettings };
+      dbSaveStoreSettings(updated);
+      return updated;
+    });
   };
 
   // ... Reserve stock, release stock, commit reservation, adjust stock handlers remain as before ...
@@ -810,6 +873,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   admin: 'System (Razorpay Verification)'
                 };
                 setLogsList(prevLogs => [logEntry, ...prevLogs]);
+                dbSaveInventoryLog(logEntry);
 
                 return {
                   ...v,
@@ -923,6 +987,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 admin: adminName
               };
               setLogsList(prevLogs => [logEntry, ...prevLogs]);
+              dbSaveInventoryLog(logEntry);
 
               return {
                 ...v,
@@ -968,6 +1033,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             admin: adminName
           };
           setLogsList(prevLogs => [logEntry, ...prevLogs]);
+          dbSaveInventoryLog(logEntry);
 
           updatedProduct = {
             ...updatedProduct,
@@ -978,6 +1044,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           };
         }
 
+        dbSaveProduct(updatedProduct);
         return updatedProduct;
       });
     });

@@ -1,6 +1,6 @@
 -- ==========================================
 -- Supabase Schema for The Pahadi Sher E-Commerce Store
--- Execute this script in your Supabase SQL Editor if setting up tables for the first time.
+-- Comprehensive SQL table definitions & public access policies
 -- ==========================================
 
 -- 1. PRODUCTS TABLE
@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS public.products (
   altitude TEXT,
   in_stock BOOLEAN DEFAULT true,
   stock_quantity INTEGER DEFAULT 100,
+  available_quantity INTEGER DEFAULT 100,
+  reserved_quantity INTEGER DEFAULT 0,
+  sold_quantity INTEGER DEFAULT 0,
   net_quantity TEXT,
   lab_certificate_no TEXT,
   images JSONB DEFAULT '[]'::jsonb,
@@ -29,6 +32,9 @@ CREATE TABLE IF NOT EXISTS public.products (
   subtitle TEXT,
   featured BOOLEAN DEFAULT false,
   status TEXT DEFAULT 'Published',
+  publish_status TEXT DEFAULT 'Published',
+  is_discontinued BOOLEAN DEFAULT false,
+  sku TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -47,10 +53,18 @@ CREATE TABLE IF NOT EXISTS public.orders (
   total NUMERIC DEFAULT 0,
   payment_method TEXT DEFAULT 'COD',
   payment_status TEXT DEFAULT 'Pending',
+  shipping_status TEXT DEFAULT 'Processing',
   status TEXT DEFAULT 'Pending',
   shipping_address JSONB DEFAULT '{}'::jsonb,
   tracking_number TEXT,
   courier_partner TEXT,
+  tracking_url TEXT,
+  timeline JSONB DEFAULT '[]'::jsonb,
+  notifications_sent JSONB DEFAULT '[]'::jsonb,
+  refund_id TEXT,
+  refund_amount NUMERIC,
+  refund_reason TEXT,
+  date TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -61,12 +75,15 @@ CREATE TABLE IF NOT EXISTS public.reviews (
   product_id TEXT,
   product_name TEXT,
   author TEXT,
+  location TEXT,
   rating NUMERIC DEFAULT 5,
   title TEXT,
   comment TEXT,
   date TEXT,
+  verified_buyer BOOLEAN DEFAULT true,
   status TEXT DEFAULT 'Approved',
   helpful_votes INTEGER DEFAULT 0,
+  unhelpful_votes INTEGER DEFAULT 0,
   images JSONB DEFAULT '[]'::jsonb,
   reply_text TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -82,6 +99,7 @@ CREATE TABLE IF NOT EXISTS public.coupons (
   max_discount NUMERIC,
   usage_limit INTEGER,
   usage_count INTEGER DEFAULT 0,
+  per_customer_limit INTEGER DEFAULT 1,
   status TEXT DEFAULT 'Active',
   start_date TEXT,
   expiry_date TEXT,
@@ -121,28 +139,116 @@ CREATE TABLE IF NOT EXISTS public.customers (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ENABLE ROW LEVEL SECURITY (RLS) & PUBLIC READ/WRITE POLICIES
+-- 7. CATEGORIES TABLE
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  description TEXT,
+  product_count INTEGER DEFAULT 0,
+  featured BOOLEAN DEFAULT false,
+  status TEXT DEFAULT 'Active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. STORE SETTINGS TABLE
+CREATE TABLE IF NOT EXISTS public.store_settings (
+  id TEXT PRIMARY KEY DEFAULT 'config',
+  store_name TEXT DEFAULT 'The Pahadi Sher',
+  support_email TEXT DEFAULT 'chhavibohra@gmail.com',
+  support_phone TEXT DEFAULT '+91 9997408567',
+  currency_symbol TEXT DEFAULT '₹',
+  tax_rate_percent NUMERIC DEFAULT 5,
+  free_shipping_threshold NUMERIC DEFAULT 999,
+  razorpay_mode TEXT DEFAULT 'Test',
+  auto_fulfill_digital BOOLEAN DEFAULT false,
+  announcement_bar_text TEXT,
+  announcement_active BOOLEAN DEFAULT true,
+  hero_heading TEXT,
+  hero_subheading TEXT,
+  banner_tagline TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. SHIPPING CONFIG TABLE
+CREATE TABLE IF NOT EXISTS public.shipping_config (
+  id TEXT PRIMARY KEY DEFAULT 'shipping',
+  flat_shipping_fee NUMERIC DEFAULT 99,
+  free_shipping_threshold NUMERIC DEFAULT 999,
+  pincode_zones JSONB DEFAULT '[]'::jsonb,
+  product_rules JSONB DEFAULT '[]'::jsonb,
+  cod_config JSONB DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. HOMEPAGE CONFIG TABLE
+CREATE TABLE IF NOT EXISTS public.homepage_config (
+  id TEXT PRIMARY KEY DEFAULT 'homepage',
+  sections JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. INVENTORY LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.inventory_logs (
+  id TEXT PRIMARY KEY,
+  date TEXT,
+  product_id TEXT,
+  product_name TEXT,
+  variant_id TEXT,
+  variant_name TEXT,
+  sku TEXT,
+  previous_stock INTEGER,
+  new_stock INTEGER,
+  adjustment INTEGER,
+  reason TEXT,
+  admin TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. CARTS & WISHLISTS TABLES
+CREATE TABLE IF NOT EXISTS public.carts (
+  user_id TEXT PRIMARY KEY,
+  items JSONB DEFAULT '[]'::jsonb,
+  applied_coupon JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.wishlists (
+  user_id TEXT PRIMARY KEY,
+  product_ids JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ENABLE ROW LEVEL SECURITY (RLS) & PUBLIC ACCESS POLICIES
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.blog_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shipping_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.homepage_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inventory_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.carts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public read access on products" ON public.products FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on products" ON public.products FOR ALL USING (true);
-
-CREATE POLICY "Allow public read access on orders" ON public.orders FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on orders" ON public.orders FOR ALL USING (true);
-
-CREATE POLICY "Allow public read access on reviews" ON public.reviews FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on reviews" ON public.reviews FOR ALL USING (true);
-
-CREATE POLICY "Allow public read access on coupons" ON public.coupons FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on coupons" ON public.coupons FOR ALL USING (true);
-
-CREATE POLICY "Allow public read access on blog_posts" ON public.blog_posts FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on blog_posts" ON public.blog_posts FOR ALL USING (true);
-
-CREATE POLICY "Allow public read access on customers" ON public.customers FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update/delete on customers" ON public.customers FOR ALL USING (true);
+DO $$ 
+BEGIN
+  CREATE POLICY "Allow public all on products" ON public.products FOR ALL USING (true);
+  CREATE POLICY "Allow public all on orders" ON public.orders FOR ALL USING (true);
+  CREATE POLICY "Allow public all on reviews" ON public.reviews FOR ALL USING (true);
+  CREATE POLICY "Allow public all on coupons" ON public.coupons FOR ALL USING (true);
+  CREATE POLICY "Allow public all on blog_posts" ON public.blog_posts FOR ALL USING (true);
+  CREATE POLICY "Allow public all on customers" ON public.customers FOR ALL USING (true);
+  CREATE POLICY "Allow public all on categories" ON public.categories FOR ALL USING (true);
+  CREATE POLICY "Allow public all on store_settings" ON public.store_settings FOR ALL USING (true);
+  CREATE POLICY "Allow public all on shipping_config" ON public.shipping_config FOR ALL USING (true);
+  CREATE POLICY "Allow public all on homepage_config" ON public.homepage_config FOR ALL USING (true);
+  CREATE POLICY "Allow public all on inventory_logs" ON public.inventory_logs FOR ALL USING (true);
+  CREATE POLICY "Allow public all on carts" ON public.carts FOR ALL USING (true);
+  CREATE POLICY "Allow public all on wishlists" ON public.wishlists FOR ALL USING (true);
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;

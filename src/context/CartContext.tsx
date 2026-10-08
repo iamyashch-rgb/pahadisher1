@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Product, ProductVariant, CartItem, Coupon } from '@/types';
 import { coupons } from '@/data/coupons';
+import { dbSaveCart } from '@/utils/supabaseDb';
 
 export interface ToastMessage {
   id: string;
@@ -67,7 +68,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Sync to Local Storage
+  // Sync to Local Storage & Database
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -77,6 +78,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         localStorage.removeItem('pahadi_sher_coupon');
       }
+      dbSaveCart('active_cart', cart, appliedCoupon);
     } catch (e) {
       console.error('Error saving cart to storage', e);
     }

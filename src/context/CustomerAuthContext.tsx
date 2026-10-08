@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CustomerUser, SavedAddress, PointsTransaction } from '@/types';
-import { dbSaveCustomer } from '@/utils/supabaseDb';
+import { dbSaveCustomer, dbFetchCustomers } from '@/utils/supabaseDb';
 
 interface CustomerAuthContextType {
   user: CustomerUser | null;
@@ -33,17 +33,29 @@ export const CustomerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'signup'>('login');
 
-  // Load user from localStorage on mount
+  // Load user from localStorage & Database on mount
   useEffect(() => {
-    try {
-      const savedSession = localStorage.getItem(LOCAL_STORAGE_CURRENT_USER);
-      if (savedSession) {
-        const activeUser = JSON.parse(savedSession);
-        setUser(activeUser);
+    async function loadCustomerState() {
+      try {
+        const savedSession = localStorage.getItem(LOCAL_STORAGE_CURRENT_USER);
+        if (savedSession) {
+          const activeUser = JSON.parse(savedSession);
+          setUser(activeUser);
+          // Sync latest customer data from database
+          const remoteCusts = await dbFetchCustomers();
+          if (remoteCusts && Array.isArray(remoteCusts)) {
+            const latest = remoteCusts.find((c: any) => c.id === activeUser.id || c.email === activeUser.email);
+            if (latest) {
+              setUser(latest);
+              localStorage.setItem(LOCAL_STORAGE_CURRENT_USER, JSON.stringify(latest));
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error loading customer auth state from database:', err);
       }
-    } catch (err) {
-      console.error('Error loading customer auth state from localStorage:', err);
     }
+    loadCustomerState();
   }, []);
 
   // Save active user session
